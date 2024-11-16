@@ -1,4 +1,4 @@
-from Models import Generator
+from Models import EGNet
 import torch.optim as optim
 from loss import g_content_loss
 import numpy as np
@@ -13,6 +13,65 @@ from torch.autograd import Variable
 import time
 from args import Args
 import torch.nn as nn
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+import torch
+import torch.nn as nn
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+alpha = torch.tensor([0.3, 0.4, 0.5, 0.6, 0.7, 0.7, 0.7, 0.8, 0.8]).to(device)
+class FocalLoss(nn.Module):
+    def __init__(self, gamma=2, alpha=None, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.gamma = gamma
+        if alpha is None:
+            # 如果没有提供alpha，初始化为全部为1的张量，长度为类别数
+            self.alpha = torch.ones(9)  # 假设有10个类别
+        else:
+            self.alpha = alpha
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        # 确保所有张量都在同一个设备上
+        inputs, targets, self.alpha = inputs.to(self.alpha.device), targets.to(self.alpha.device), self.alpha.to(
+            inputs.device)
+        #print(self.alpha)
+        BCE_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
+        pt = torch.exp(-BCE_loss)
+        F_loss = self.alpha * (1 - pt) ** self.gamma * BCE_loss
+
+        if self.reduction == 'mean':
+            return torch.mean(F_loss)
+        elif self.reduction == 'sum':
+            return torch.sum(F_loss)
+        else:
+            return F_loss
+
+class LDAMLoss(nn.Module):
+    def __init__(self, cls_num_list, max_m=0.5, weight=None, s=30):
+        super(LDAMLoss, self).__init__()
+        m_list = 1.0 / np.sqrt(np.sqrt(cls_num_list))
+        m_list = m_list * (max_m / np.max(m_list))
+        m_list = torch.FloatTensor(m_list).cuda()
+        self.m_list = m_list
+        assert s > 0
+        self.s = s
+        self.weight = weight
+
+    def forward(self, x, target):
+        x = x.cuda()
+        target = target.cuda()
+        index = torch.zeros_like(x, dtype=torch.uint8).cuda()
+        index.scatter_(1, target.data.view(-1, 1), 1)
+        index_float = index.type(torch.FloatTensor).cuda()
+        batch_m = torch.matmul(self.m_list[None, :], index_float.transpose(0,1))
+        batch_m = batch_m.view((-1, 1))
+        x_m = x - batch_m
+        output = torch.where(index, x_m, x)
+        return F.cross_entropy(self.s*output, target, weight=self.weight)
 
 
 args = Args()
@@ -34,7 +93,7 @@ def train(train_data_ir, train_data_vi):
     loss_save_path = make_floor(models_save_path,args_dict['save_loss_dir'])
     print(loss_save_path)
 
-    G = Generator().cuda()
+    G = EGNet().cuda()
 
     g_content_criterion = g_content_loss().cuda()
 
@@ -64,8 +123,12 @@ def train(train_data_ir, train_data_vi):
 
         G.train()
         # scheduler.step()
-        entity_features_path = './entity_features.pkl'
-        train_label_path = './train_label_msrs.pkl'
+        '1000张'
+        # entity_features_path = './clip picture last/train_entity_oral_msrs_filtered.pkl'
+        # train_label_path = './clip picture last/encoded_train_classes_oral.pkl'
+
+        entity_features_path = 'D:/text_fusion\CrossFuse-main/train_dataset_448//train_crop_entity_orig.pkl'
+        train_label_path = 'D:/text_fusion\CrossFuse-main/train_dataset_448//train_classes_label.pkl'
 
 
         batch_size=args_dict['batch_size']
@@ -87,7 +150,7 @@ def train(train_data_ir, train_data_vi):
 
 
             img_vi = utils.get_train_images_auto_vi(image_paths_vi, height=args_dict['height'], width=args_dict['width'], mode=img_model)
-            img_ir = utils.get_train_images_auto_ir(image_paths_ir, height=args_dict['height'], width=args_dict['width'], mode=img_model)
+            img_ir = utils.get_train_images_auto_vi(image_paths_ir, height=args_dict['height'], width=args_dict['width'], mode=img_model)
 
             img_ir = Variable(img_ir, requires_grad=False)
             img_vi = Variable(img_vi, requires_grad=False)
@@ -98,7 +161,7 @@ def train(train_data_ir, train_data_vi):
             image_paths_ir = [os.path.splitext(os.path.basename(path))[0] for path in image_paths_ir]
             image_paths_vi = [os.path.splitext(os.path.basename(path))[0] for path in image_paths_vi]
 
-            labels_batch = torch.stack([torch.from_numpy(train_label[name]) for name in image_paths_ir])
+            labels_batch = torch.stack([train_label[name] for name in image_paths_ir])
 
             # 将标签移动到GPU
             labels_batch = labels_batch.cuda()
@@ -114,6 +177,7 @@ def train(train_data_ir, train_data_vi):
             # 找到最长的张量长度
             max_length = max(tensor.size(0) for tensor in text_features_batch1)
 
+
             # 对每个张量进行填充，以确保它们具有相同的长度
             padded_batch1 = [torch.nn.functional.pad(tensor, (0, 0, 0, max_length - tensor.size(0))) for tensor in
                              text_features_batch1]
@@ -125,16 +189,20 @@ def train(train_data_ir, train_data_vi):
             text_features_batch = text_features_batch1.cuda(non_blocking=True)
 
             img_fusion,class_output = G(img_ir, img_vi, text_features_batch)
-            criterion=  nn.BCEWithLogitsLoss()
+
+            criterion_bce= nn.BCEWithLogitsLoss()
+
+            criterion_focal = FocalLoss(gamma=2, alpha=alpha, reduction='mean').to(device)
 
 
-            class_loss = criterion(class_output,labels_batch.float())
+
+            class_loss =criterion_focal(class_output,labels_batch.float())
 
 
 
             content_loss,  intensity_loss , texture_loss = g_content_criterion(img_ir, img_vi,img_fusion)  # models_4
 
-            g_loss =  class_loss #+ content_loss
+            g_loss = content_loss + 1*class_loss
 
             all_intensity_loss += intensity_loss.item()
             all_texture_loss +=texture_loss.item()

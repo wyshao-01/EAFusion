@@ -110,7 +110,7 @@ class C_DePatch(nn.Module):
         return x
 
 class Cross_Channel(nn.Module):
-    def __init__(self, size=256,embed_dim=256, depth=2, channel=16,
+    def __init__(self, size=256,embed_dim=128, depth=2, channel=16,
                  num_heads=4, mlp_ratio=2., patch_size=16,qkv_bias=False, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
                  drop_path_rate=0., norm_layer=nn.LayerNorm): #depth= 2
         super().__init__()
@@ -132,7 +132,10 @@ class Cross_Channel(nn.Module):
     def forward(self, x,y):
 
         ori = x.shape
+
         x = self.embedding(x)
+
+
         y = self.embedding(y)
 
         x = self.pos_drop(x)

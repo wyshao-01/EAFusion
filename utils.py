@@ -41,8 +41,8 @@ def load_dataset(ir_imgs_path, vi_imgs_path, entity_features_path, train_label_p
     entity_features = load_text_features(entity_features_path)
     train_label = load_text_features(train_label_path)
 
-    # 提取图像文件名（不含扩展名）
-    # img_names = [os.path.splitext(os.path.basename(path))[0] for path in ir_imgs_path]
+    #提取图像文件名（不含扩展名）
+    img_names = [os.path.splitext(os.path.basename(path))[0] for path in ir_imgs_path]
 
     # # 确保每个图像文件名都在文本特征和标签字典的键中
     # for name in img_names:
@@ -213,16 +213,6 @@ def save_images(path, data, out):
     cv2.imwrite(path, ori)
 
 
-def get_image(path, height=128, width=128, mode='L'):
-    global image
-    if mode == 'L':
-        image = cv2.imread(path, 0)
-    elif mode == 'RGB':
-        image = cv2.imread(path, cv2.IMREAD_UNCHANGED)
-
-    if height is not None and width is not None:
-        image = cv2.resize(image, (width, height), interpolation=cv2.INTER_LINEAR)
-    return image
 
 def get_image_vi(path, height=args_dict['height'], width=args_dict['width'], mode='L'):
     if mode == 'L':
@@ -235,6 +225,17 @@ def get_image_vi(path, height=args_dict['height'], width=args_dict['width'], mod
     if height is not None and width is not None:
         image = cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA)
 
+    return image
+
+def get_image(path, height=128, width=128, mode='L'):
+    global image
+    if mode == 'L':
+        image = cv2.imread(path, 0)
+    elif mode == 'RGB':
+        image = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+
+    if height is not None and width is not None:
+        image = cv2.resize(image, (width, height), interpolation=cv2.INTER_LINEAR)
     return image
 
 def get_test_images(paths, height=None, width=None, mode='L'):
